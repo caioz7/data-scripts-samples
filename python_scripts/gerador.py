@@ -1,83 +1,71 @@
+import argparse
 import csv
-import names
-from rstr import rstr
-from string import digits
-import datetime
-import re
-from random import randint
+import unicodedata
+
 from faker import Faker
-fake = Faker()
- 
-''' Gera um arquivo csv contendo os campos 
-"cpf, matricula, sobrenome, nome, email, data de ingresso" 
+
+fake = Faker('pt_BR')
+
+''' Gera um arquivo csv contendo os campos
+"id_vendedor, matricula, sobrenome, nome, email, data_de_ingresso"
 '''
- 
-def get_matricula(data_ingresso):
-    try:
-        return '{}{}'.format(datetime.datetime.strptime(
-            data_ingresso, "%Y-%m-%d").strftime("%Y"), rstr(digits, 5))
-    except:
-        return '{}{}'.format(datetime.datetime.now().strftime("%Y"), rstr(digits, 5))
- 
-def get_cpf():
-    ''' retorna string de CPF não verificado'''
-    while True:
-        return '{}.{}.{}-{}'.format(
-            rstr(digits, 3),
-            rstr(digits, 3),
-            rstr(digits, 3),
-            rstr(digits, 2),
-        )
- 
-def gen_nome_completo():
-    '''retorna string com nome, sobrenome'''
-    while True:
-        yield (names.get_full_name())
- 
-def gen_email(nomecompleto, dominio='incolume.com.br'):
-    '''recebe nome completo e dominio, retorna email'''
-    try:
-        return '{}.{}@{}'.format(*(nomecompleto.lower().split()), dominio)
-    except:
-        return None
- 
-def gen_data_ingresso():
-    data_random=fake.date_between(start_date='-15y', end_date='now').strftime('%Y-%m-%d')
-    return data_random
 
-    # ''':return data'''
-    # seconds = int('{}{}'.format(
-    #     randint(12, 14),
-    #     rstr(digits, 8)
-    # ))
-    # return ctime(seconds)
- 
- 
-def gen_massa(qlinhas, cvsname):
-    '''cria cvsname com a quantidade de linhas informadas em qlinhas '''
-    try:
-        header = "cpf, matricula, sobrenome, nome, email, data de ingresso"
-        with open(cvsname, 'w') as file:
-            csvhandler = csv.writer(file)
-            csvhandler.writerow(header.split(', '))
-            for i in range(qlinhas):
-                nome = gen_nome_completo()
-                person = next(nome)
-                date = gen_data_ingresso()
-                linha = '{}, {}, {c[1]}, {c[0]}, {}, {}'.format(
-                    get_cpf(),
-                    get_matricula(date),
-                    gen_email(nomecompleto=person),
-                    date,
-                    c = person.split(),
-                    )
-                csvhandler.writerow(linha.split(','))
-        return True
-    except:
-        raise
- 
- 
+CAMPOS = ['id_vendedor', 'matricula', 'sobrenome', 'nome', 'email', 'data_de_ingresso']
+
+
+def sem_acento(texto):
+    '''remove acentos e caracteres nao ASCII'''
+    return unicodedata.normalize('NFKD', texto).encode('ascii', 'ignore').decode()
+
+
+def gen_email(nome, sobrenome, dominio='incolume.com.br'):
+    '''recebe nome, sobrenome e dominio, retorna email'''
+    local = sem_acento(f'{nome}.{sobrenome}'.lower()).replace(' ', '')
+    return f'{local}@{dominio}'
+
+
+def gen_matricula(data_ingresso, usadas):
+    '''ano de ingresso + 5 digitos, sem repetir valores ja usados'''
+    while True:
+        matricula = f'{data_ingresso.year}{fake.numerify("#####")}'
+        if matricula not in usadas:
+            usadas.add(matricula)
+            return matricula
+
+
+def gen_linha(id_vendedor, usadas, dominio='incolume.com.br'):
+    nome = fake.first_name()
+    sobrenome = fake.last_name()
+    ingresso = fake.date_between(start_date='-15y', end_date='today')
+    return {
+        'id_vendedor': id_vendedor,
+        'matricula': gen_matricula(ingresso, usadas),
+        'sobrenome': sobrenome,
+        'nome': nome,
+        'email': gen_email(nome, sobrenome, dominio),
+        'data_de_ingresso': ingresso.isoformat(),
+    }
+
+
+def gen_massa(qlinhas, csvname):
+    '''cria csvname com a quantidade de linhas informadas em qlinhas'''
+    usadas = set()
+    with open(csvname, 'w', newline='', encoding='utf-8') as file:
+        writer = csv.DictWriter(file, fieldnames=CAMPOS)
+        writer.writeheader()
+        for id_vendedor in range(1, qlinhas + 1):
+            writer.writerow(gen_linha(id_vendedor, usadas))
+    return True
+
+
 if __name__ == '__main__':
-    QUANT_REGISTROS=100
+    parser = argparse.ArgumentParser(description='Gera CSV de teste')
+    parser.add_argument('-n', '--quantidade', type=int, default=100)
+    parser.add_argument('-o', '--saida', default='dados_gerados.csv')
+    parser.add_argument('--seed', type=int, help='torna a massa reproduzivel')
+    args = parser.parse_args()
 
-    print(gen_massa(QUANT_REGISTROS, '/home/<USUARIO>/datasets/dados_gerados.csv'))
+    if args.seed is not None:
+        Faker.seed(args.seed)
+
+    print(gen_massa(args.quantidade, args.saida))

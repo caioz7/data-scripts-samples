@@ -17,3 +17,4 @@ print("Spark está funcionando!")
 df.show()
 
 spark.stop()
+
